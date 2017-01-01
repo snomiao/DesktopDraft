@@ -1,0 +1,5 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<project ver="10" name="WinTab测试" libEmbed="true" icon="..." ui="win" output="wintab.exe" CompanyName="Snowsoft" FileDescription="WinTab测试" LegalCopyright="Copyright (C) CSnowstar 2011" ProductName="WinTab测试" InternalName="WinTab测试" FileVersion="0.0.0.04" ProductVersion="0.0.0.04" publishDir="/Publish/" dstrip="false">
+	<file name="main.aau" path="main.aau"/>
+	<folder name="资源文件" path="res" embed="true"/>
+</project>

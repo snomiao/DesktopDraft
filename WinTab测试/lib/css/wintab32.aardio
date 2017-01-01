@@ -1,0 +1,771 @@
+﻿//wintab32 数位板支持库
+///lib/css/wintab32.aau
+
+// 更新记录
+// # 2015/04/19 雪星 (997596@gmail.com)
+// 创建
+///
+
+/**intellisense()
+css.wintab32 = Windows数位板支持库
+css.wintab32(winform->hwnd, _PACKET__) = Windows数位板类，窗口会收到0x7FF0/*_WT_PACKET*/消息\n参数 1 填窗口对象或窗口句柄\n参数 2 可选填结构体, 不填为默认结构体, 有pkButtons, pkX, pkY, pkZ, pkNormalPressure这5个属性\n参数 3 可选填接收消息的函数, 它的参数为上个参数填入的结构体\n参数 4 可选填开板用的lc名, 一般不用填\n返回类
+css.wintab32(/*带接收函数*/) = @.wintab32(winform, , function(pkt){\n    io.print(pkt.pkX, pkt.pkY)\n})
+css.wintab32() = !css!wintab32.
+?css.wintab32 = !css!wintab32.
+!css!wintab32.open(hWnd, lcMine) = 开板，会自动调用，开板后窗口会收到0x7FF0/*_WT_PACKET*/消息
+!css!wintab32.close() = 闭板，会自动调用
+!css!wintab32.enable(wParam) = 设置数位板启用状态
+!css!wintab32.getPacket(wParam) = 在0x7FF0/*_WT_PACKET*/消息中获取Wintab数据包，格式和传入的结构体一样
+end intellisense**/
+
+namespace css{
+    wintab32 = class{
+        ctor(hWnd, packet, OnPacket, titleUnicode){//_
+            //排错
+            hWnd = assert(
+                    (type(hWnd) == type.table && hWnd.hwnd)
+                    ? (type(hWnd.hwnd) == type.number ? hWnd.hwnd)
+                    : (type(hWnd)      == type.number ? hWnd     )
+                    , "窗口句柄必须是一个数值")
+            //获取方法
+            this@ = _meta
+            //接收结构体
+            this.packet = packet : {
+                INT    pkButtons         = 0;
+                int    pkX               = 0;
+                int    pkY               = 0;
+                int    pkZ               = 0;
+                INT    pkNormalPressure  = 0;
+            }
+            //开板数据
+            var packetdata = getPacketData(this.packet)
+            var packetmode = 0
+            var titleW = titleUnicode : readApiW(2, ::GetWindowTextW, hWnd, 0x50/*_LC_NAMELENW*/, 0x50/*_LC_NAMELENW*/)
+            var lcMine = makeLogContext(titleW, packetdata, packetmode)
+            //初始化
+            if type(OnPacket) == type.function{
+                this._sc = css.subclass(hWnd)
+                this._sc.mapMsg = {
+                    [0x7FF0/*_WT_PACKET*/] = function(hwnd, msg, wParam, lParam){
+                        var pkt = this.getPacket(wParam)
+                        if(pkt)
+                            OnPacket(pkt)
+                        return 0;
+                    }
+                }
+            }
+            this.open(hWnd, lcMine)
+            //扫地
+            ..table.gc(this, this.close)
+        }
+    }
+    namespace wintab32{
+        import console
+        import css.unicode
+        import css.subclass
+        import util.metaProperty
+        /*转换函数{{*/{//_
+            ::GetWindowTextW := ::User32.api("GetWindowTextW","INT(addr,str,int)")
+            DEBUG = _STUDIO_INVOKED
+            e = !DEBUG ? function(){}:function(...){//_
+                error(...)
+            }
+            r = !DEBUG ? function(){}:function(...){//_
+                for k,v in {...} console.dump(v)
+            }
+            FIX_DOUBLE=(function(x){//_
+                return (((x>>>16))+((x&0xFFFF)/65536))
+            })
+            readApiW = function(bufpos, func, ...){//_
+                var params = {...}
+                params[bufpos] = ..raw.malloc(params[bufpos], 0)
+                return ..raw.tostring(params[bufpos], 1, func(..table.unpack(params)))
+            }
+            exWTInfoW = function(...){//_
+                return readApiW(3, gpWTInfoW, ...)
+            }
+            getPacketData = function(packet){
+                var PacketData = 0
+                for name,value in ..table.eachName(packet){
+                    select name{
+                        case "pkContext"             PacketData |= 1/*_PK_CONTEXT*/
+                        case "pkStatus"              PacketData |= 2/*_PK_STATUS*/
+                        case "pkTime"                PacketData |= 4/*_PK_TIME*/
+                        case "pkChanged"             PacketData |= 8/*_PK_CHANGED*/
+                        case "pkSerialNumber"        PacketData |= 0x10/*_PK_SERIAL_NUMBER*/
+                        case "pkCursor"              PacketData |= 0x20/*_PK_CURSOR*/
+                        case "pkButtons"             PacketData |= 0x40/*_PK_BUTTONS*/
+                        case "pkX"                   PacketData |= 0x80/*_PK_X*/
+                        case "pkY"                   PacketData |= 0x100/*_PK_Y*/
+                        case "pkZ"                   PacketData |= 0x200/*_PK_Z*/
+                        case "pkNormalPressure"      PacketData |= 0x400/*_PK_NORMAL_PRESSURE*/
+                        case "pkTangentPressure"     PacketData |= 0x800/*_PK_TANGENT_PRESSURE*/
+                        case "pkOrientation"         PacketData |= 0x1000/*_PK_ORIENTATION*/
+                        case "pkRotation" /* 1.1 */  PacketData |= 0x2000/*_PK_ROTATION*/
+                    }
+                }
+                return PacketData
+            }
+            makeLogContext = function(lcName, packetdata, packetmode){//_
+                //获取结构
+                var len, lcMine    = gpWTInfoWS(4/*_WTI_DEFSYSCTX*/, 0, LOGCONTEXTW())
+                
+                var len, TabletX   = gpWTInfoWS(0x64/*_WTI_DEVICES*/,0xC/*_DVC_X*/, AXIS())
+                var len, TabletY   = gpWTInfoWS(0x64/*_WTI_DEVICES*/,0xD/*_DVC_Y*/, AXIS())
+                lcMine.lcPktData   = packetdata
+                lcMine.lcPktMode   = packetmode
+                lcMine.lcOptions  |= 4/*_CXO_MESSAGES*/
+                lcMine.lcName      = lcName
+                return lcMine
+            }
+        }/*}}*/
+        /*结构配置{{*/{//_
+        AXIS = class{//_
+            int axMin;
+            int axMax;
+            INT axUnits;
+            INT axResolution;
+        }
+        LOGCONTEXTA = class{//_
+            byte lcName[0x28/*_LCNAMELEN*/];
+            INT  lcOptions;
+            INT  lcStatus;
+            INT  lcLocks;
+            INT  lcMsgBase;
+            INT  lcDevice;
+            INT  lcPktRate;
+            INT  lcPktData;
+            INT  lcPktMode;
+            INT  lcMoveMask;
+            INT  lcBtnDnMask;
+            INT  lcBtnUpMask;
+            int  lcInOrgX;
+            int  lcInOrgY;
+            int  lcInOrgZ;
+            int  lcInExtX;
+            int  lcInExtY;
+            int  lcInExtZ;
+            int  lcOutOrgX;
+            int  lcOutOrgY;
+            int  lcOutOrgZ;
+            int  lcOutExtX;
+            int  lcOutExtY;
+            int  lcOutExtZ;
+            INT  lcSensX;
+            INT  lcSensY;
+            INT  lcSensZ;
+            int  lcSysMode;
+            int  lcSysOrgX;
+            int  lcSysOrgY;
+            int  lcSysExtX;
+            int  lcSysExtY;
+            INT  lcSysSensX;
+            INT  lcSysSensY;
+        }
+        LOGCONTEXTW = class{//_
+            BYTE lcName[0x50/*_LCNAMELENW*/];
+            INT  lcOptions;
+            INT  lcStatus;
+            INT  lcLocks;
+            INT  lcMsgBase;
+            INT  lcDevice;
+            INT  lcPktRate;
+            INT  lcPktData;
+            INT  lcPktMode;
+            INT  lcMoveMask;
+            INT  lcBtnDnMask;
+            INT  lcBtnUpMask;
+            int  lcInOrgX;
+            int  lcInOrgY;
+            int  lcInOrgZ;
+            int  lcInExtX;
+            int  lcInExtY;
+            int  lcInExtZ;
+            int  lcOutOrgX;
+            int  lcOutOrgY;
+            int  lcOutOrgZ;
+            int  lcOutExtX;
+            int  lcOutExtY;
+            int  lcOutExtZ;
+            INT  lcSensX;
+            INT  lcSensY;
+            INT  lcSensZ;
+            int  lcSysMode;
+            int  lcSysOrgX;
+            int  lcSysOrgY;
+            int  lcSysExtX;
+            int  lcSysExtY;
+            INT  lcSysSensX;
+            INT  lcSysSensY;
+        }
+        LOGCONTEXT = class{//_
+            byte lcName[0x28/*_LCNAMELEN*/];
+            INT  lcOptions;
+            INT  lcStatus;
+            INT  lcLocks;
+            INT  lcMsgBase;
+            INT  lcDevice;
+            INT  lcPktRate;
+            INT  lcPktData;
+            INT  lcPktMode;
+            INT  lcMoveMask;
+            INT  lcBtnDnMask;
+            INT  lcBtnUpMask;
+            int  lcInOrgX;
+            int  lcInOrgY;
+            int  lcInOrgZ;
+            int  lcInExtX;
+            int  lcInExtY;
+            int  lcInExtZ;
+            int  lcOutOrgX;
+            int  lcOutOrgY;
+            int  lcOutOrgZ;
+            int  lcOutExtX;
+            int  lcOutExtY;
+            int  lcOutExtZ;
+            INT  lcSensX;
+            INT  lcSensY;
+            INT  lcSensZ;
+            int  lcSysMode;
+            int  lcSysOrgX;
+            int  lcSysOrgY;
+            int  lcSysExtX;
+            int  lcSysExtY;
+            INT  lcSysSensX;
+            INT  lcSysSensY;
+        }
+        ORIENTATION = class{//_
+            int orAzimuth;
+            int orAltitude;
+            int orTwist;
+        }
+        ROTATION = class{/* 1.1 */ //_
+            int roPitch;
+            int roRoll;
+            int roYaw;
+        }
+        XBTNMASK = class{//_
+            BYTE xBtnDnMask[32];
+            BYTE xBtnUpMask[32];
+        }
+        TILT = class{/* 1.1 */ //_
+            int tiltX;
+            int tiltY;
+        }
+        EXTENSIONBASE = class{/* 1.4 */ //_
+            int  nContext;
+            INT  nStatus;
+            INT  nTime;
+            INT  nSerialNumber;
+        }
+        EXPKEYSDATA = class{/* 1.4 */ //_
+            BYTE nTablet;
+            BYTE nControl;
+            BYTE nLocation;
+            BYTE nReserved;
+            INT  nState;
+        }
+        SLIDERDATA = class{/* 1.4 */ //_
+            BYTE nTablet;
+            BYTE nControl;
+            BYTE nMode;
+            BYTE nReserved;
+            INT  nPosition;
+        }
+        EXTPROPERTY = class{/* 1.4 */ //_
+            BYTE version;                // Structure version, 0 for now
+            BYTE tabletIndex;        // 0-based index for tablet
+            BYTE controlIndex;       // 0-based index for control 
+            BYTE functionIndex;      // 0-based index for control's sub-function
+            WORD propertyID;         // property ID
+            WORD reserved;           // INT-alignment filler
+            INT  dataSize;           // number of bytes in data[] buffer
+            BYTE data[1];                // raw data
+        }
+
+        /**intellisense()
+        _PACKET = @{\n/* 把本结构体作为 wintab32() 的 packet 参数 *\n * 在你收到窗口消息 0x7FF0 (_WT_PACKET)  后 *\n * 使用 getPacket (wParam, lParam) 得到数据 */\n/* 请把需要的数据项取消注释                 */\n/*int    pkContext         = 0; */\n/*INT    pkStatus          = 0; */\n/*INT    pkTime            = 0; */\n/*INT    pkChanged         = 0; */\n/*INT    pkSerialNumber    = 0; */\n/*INT    pkCursor          = 0; */\n  INT    pkButtons         = 0;\n  int    pkX               = 0;\n  int    pkY               = 0;\n  int    pkZ               = 0;\n  INT    pkNormalPressure  = 0;\n/*INT    pkTangentPressure = 0; */\n/*struct pkOrientation     =\n      (class{\n          int orAzimuth  = 0;\n          int orAltitude = 0;\n          int orTwist    = 0;\n      })();                     */\n/*struct pkRotation        = \n      (class{\n          int roPitch = 1;\n          int roRoll  = 1;\n          int roYaw   = 1;\n      })();                     */\n/* 扩展数据 WTEXTENSIONS */\n/*INT    pkFKeys           = 0; */\n/*struct pkTilt            = \n      (class{\n          int tiltX = 0;\n          int tiltY = 0;\n      })();                     */\n}
+        end intellisense**/
+
+        }/*}}*/
+        /*常量配置{{*/{//_
+        /**intellisense()
+        _PACKETDATA =@(0x80/*_PK_X*/ | 0x100/*_PK_Y*/ | 0x40/*_PK_BUTTONS*/ | 0x400/*_PK_NORMAL_PRESSURE*/ | 0x1000/*_PK_ORIENTATION*/ | 0x20/*_PK_CURSOR*/)/*_PACKETDATA*/
+        _PACKETMODE =@0/*_PACKETMODE*/
+        end intellisense**/
+        
+        /**intellisense()
+        _WT_DEFBASE=@0x7FF0/*_WT_DEFBASE*/
+        _WT_MAXOFFSET=@0xF/*_WT_MAXOFFSET*/
+        end intellisense**/
+        
+        /**intellisense()
+        __WT_PACKET     =@((b)+0)/*__WT_PACKET*/
+        __WT_CTXOPEN    =@((b)+1)/*__WT_CTXOPEN*/
+        __WT_CTXCLOSE   =@((b)+2)/*__WT_CTXCLOSE*/
+        __WT_CTXUPDATE  =@((b)+3)/*__WT_CTXUPDATE*/
+        __WT_CTXOVERLAP =@((b)+4)/*__WT_CTXOVERLAP*/
+        __WT_PROXIMITY  =@((b)+5)/*__WT_PROXIMITY*/
+        __WT_INFOCHANGE =@((b)+6)/*__WT_INFOCHANGE*/
+        __WT_CSRCHANGE  =@((b)+7) /* 1.1 *//*__WT_CSRCHANGE*/
+        __WT_PACKETEXT  =@((b)+8) /* 1.4 *//*__WT_PACKETEXT*/
+        __WT_MAX        =@((b)+0xF/*_WT_MAXOFFSET*/)/*__WT_MAX*/
+        end intellisense**/
+        
+        
+        /**intellisense()
+        _WT_PACKET     =@0x7FF0/*_WT_PACKET*/
+        _WT_CTXOPEN    =@0x7FF1/*_WT_CTXOPEN*/
+        _WT_CTXCLOSE   =@0x7FF2/*_WT_CTXCLOSE*/
+        _WT_CTXUPDATE  =@0x7FF3/*_WT_CTXUPDATE*/
+        _WT_CTXOVERLAP =@0x7FF4/*_WT_CTXOVERLAP*/
+        _WT_PROXIMITY  =@0x7FF5/*_WT_PROXIMITY*/
+        _WT_INFOCHANGE =@0x7FF6/*_WT_INFOCHANGE*/
+        _WT_CSRCHANGE  =@0x7FF7/*_WT_CSRCHANGE*/
+        _WT_PACKETEXT  =@0x7FF8/*_WT_PACKETEXT*/
+        _WT_MAX        =@0x7FFF/*_WT_MAX*/
+        end intellisense**/
+        
+        /**intellisense()
+        _PK_CONTEXT          =@1/*_PK_CONTEXT*/
+        _PK_STATUS           =@2/*_PK_STATUS*/
+        _PK_TIME             =@4/*_PK_TIME*/
+        _PK_CHANGED          =@8/*_PK_CHANGED*/
+        _PK_SERIAL_NUMBER    =@0x10/*_PK_SERIAL_NUMBER*/
+        _PK_CURSOR           =@0x20/*_PK_CURSOR*/
+        _PK_BUTTONS          =@0x40/*_PK_BUTTONS*/
+        _PK_X                =@0x80/*_PK_X*/
+        _PK_Y                =@0x100/*_PK_Y*/
+        _PK_Z                =@0x200/*_PK_Z*/
+        _PK_NORMAL_PRESSURE  =@0x400/*_PK_NORMAL_PRESSURE*/
+        _PK_TANGENT_PRESSURE =@0x800/*_PK_TANGENT_PRESSURE*/
+        _PK_ORIENTATION      =@0x1000/*_PK_ORIENTATION*/
+        _PK_ROTATION         =@0x2000/*_PK_ROTATION*/
+        end intellisense**/
+        
+        /**intellisense()
+        _INT(x)       =@(x>>>16)/*HIWORD(x)*/
+        _FRAC(x)      =@(x&0xFFFF)/*LOWORD(x)*/
+        _CASTFIX32(x) =@(x*65536)/*((FIX32)((x)*65536L))*/
+        _ROUND(x)     =@(x>>>16)+(x&0xFFFF)>0x8000>/*(INT(x) + (FRAC(x) > (WORD)0x8000))*/
+        _FIX_MUL(c, a, b) =@FIX_MUL=(function(){\n    return (((a&0xFFFF) * (b&0xFFFF)) >> 16) +\n           (a>>>16) * (b&0xFFFF) +\n           (b>>>16) * (a&0xFFFF) +\n           ((a>>>16) * (b>>>16) << 16)\n})
+        _FIX_DIV(c, a, b) =@FIX_DIV=(function(a, b){\n    var temp, rem, btemp;\n\n    /* fraction done bytewise */\n    temp  = ((a / b) << 16);\n    rem   = a % b;\n    btemp = b;\n    if ((btemp>>>16) < 256) {\n        rem <<= 8;\n    } else {\n        btemp >>= 8;\n    }\n    temp += ((rem / btemp) << 8);\n    rem  %= btemp;\n    rem <<= 8;\n    temp += rem / btemp;\n    return temp;\n})
+        _FIX_DOUBLE(x)    =@FIX_DOUBLE=(function(x){\n    return (((x>>>16))+((x&0xFFFF)/65536))\n})
+        end intellisense**/
+        
+        /**intellisense()
+        _TU_NONE        =@0/*_TU_NONE*/
+        _TU_INCHES      =@1/*_TU_INCHES*/
+        _TU_CENTIMETERS =@2/*_TU_CENTIMETERS*/
+        _TU_CIRCLE      =@3/*_TU_CIRCLE*/
+        _SBN_NONE       =@0/*_SBN_NONE*/
+        _SBN_LCLICK     =@1/*_SBN_LCLICK*/
+        _SBN_LDBLCLICK  =@2/*_SBN_LDBLCLICK*/
+        _SBN_LDRAG      =@3/*_SBN_LDRAG*/
+        _SBN_RCLICK     =@4/*_SBN_RCLICK*/
+        _SBN_RDBLCLICK  =@5/*_SBN_RDBLCLICK*/
+        _SBN_RDRAG      =@6/*_SBN_RDRAG*/
+        _SBN_MCLICK     =@7/*_SBN_MCLICK*/
+        _SBN_MDBLCLICK  =@8/*_SBN_MDBLCLICK*/
+        _SBN_MDRAG      =@9/*_SBN_MDRAG*/
+        _SBN_PTCLICK    =@0x10/*_SBN_PTCLICK*/
+        _SBN_PTDBLCLICK =@0x20/*_SBN_PTDBLCLICK*/
+        _SBN_PTDRAG     =@0x30/*_SBN_PTDRAG*/
+        _SBN_PNCLICK    =@0x40/*_SBN_PNCLICK*/
+        _SBN_PNDBLCLICK =@0x50/*_SBN_PNDBLCLICK*/
+        _SBN_PNDRAG     =@0x60/*_SBN_PNDRAG*/
+        _SBN_P1CLICK    =@0x70/*_SBN_P1CLICK*/
+        _SBN_P1DBLCLICK =@0x80/*_SBN_P1DBLCLICK*/
+        _SBN_P1DRAG     =@0x90/*_SBN_P1DRAG*/
+        _SBN_P2CLICK    =@0xA0/*_SBN_P2CLICK*/
+        _SBN_P2DBLCLICK =@0xB0/*_SBN_P2DBLCLICK*/
+        _SBN_P2DRAG     =@0xC0/*_SBN_P2DRAG*/
+        _SBN_P3CLICK    =@0xD0/*_SBN_P3CLICK*/
+        _SBN_P3DBLCLICK =@0xE0/*_SBN_P3DBLCLICK*/
+        _SBN_P3DRAG     =@0xF0/*_SBN_P3DRAG*/
+        _HWC_INTEGRATED     =@1/*_HWC_INTEGRATED*/
+        _HWC_TOUCH          =@2/*_HWC_TOUCH*/
+        _HWC_HARDPROX       =@4/*_HWC_HARDPROX*/
+        _HWC_PHYSID_CURSORS =@8/*_HWC_PHYSID_CURSORS*/
+        _CRC_MULTIMODE =@1/*_CRC_MULTIMODE*/
+        _CRC_AGGREGATE =@2/*_CRC_AGGREGATE*/
+        _CRC_INVERT    =@4/*_CRC_INVERT*/
+        _WTI_INTERFACE =@1/*_WTI_INTERFACE*/
+            _IFC_WINTABID    =@1/*_IFC_WINTABID*/
+            _IFC_SPECVERSION =@2/*_IFC_SPECVERSION*/
+            _IFC_IMPLVERSION =@3/*_IFC_IMPLVERSION*/
+            _IFC_NDEVICES    =@4/*_IFC_NDEVICES*/
+            _IFC_NCURSORS    =@5/*_IFC_NCURSORS*/
+            _IFC_NCONTEXTS   =@6/*_IFC_NCONTEXTS*/
+            _IFC_CTXOPTIONS  =@7/*_IFC_CTXOPTIONS*/
+            _IFC_CTXSAVESIZE =@8/*_IFC_CTXSAVESIZE*/
+            _IFC_NEXTENSIONS =@9/*_IFC_NEXTENSIONS*/
+            _IFC_NMANAGERS   =@0xA/*_IFC_NMANAGERS*/
+            _IFC_MAX         =@0xA/*_IFC_MAX*/
+        _WTI_STATUS =@2/*_WTI_STATUS*/
+            _STA_CONTEXTS  =@1/*_STA_CONTEXTS*/
+            _STA_SYSCTXS   =@2/*_STA_SYSCTXS*/
+            _STA_PKTRATE   =@3/*_STA_PKTRATE*/
+            _STA_PKTDATA   =@4/*_STA_PKTDATA*/
+            _STA_MANAGERS  =@5/*_STA_MANAGERS*/
+            _STA_SYSTEM    =@6/*_STA_SYSTEM*/
+            _STA_BUTTONUSE =@7/*_STA_BUTTONUSE*/
+            _STA_SYSBTNUSE =@8/*_STA_SYSBTNUSE*/
+            _STA_MAX       =@8/*_STA_MAX*/
+        _WTI_DEFCONTEXT =@3/*_WTI_DEFCONTEXT*/
+        _WTI_DEFSYSCTX  =@4/*_WTI_DEFSYSCTX*/
+        _WTI_DDCTXS     =@0x190/*_WTI_DDCTXS*/
+        _WTI_DSCTXS     =@0x1F4/*_WTI_DSCTXS*/
+            _CTX_NAME      =@1/*_CTX_NAME*/
+            _CTX_OPTIONS   =@2/*_CTX_OPTIONS*/
+            _CTX_STATUS    =@3/*_CTX_STATUS*/
+            _CTX_LOCKS     =@4/*_CTX_LOCKS*/
+            _CTX_MSGBASE   =@5/*_CTX_MSGBASE*/
+            _CTX_DEVICE    =@6/*_CTX_DEVICE*/
+            _CTX_PKTRATE   =@7/*_CTX_PKTRATE*/
+            _CTX_PKTDATA   =@8/*_CTX_PKTDATA*/
+            _CTX_PKTMODE   =@9/*_CTX_PKTMODE*/
+            _CTX_MOVEMASK  =@0xA/*_CTX_MOVEMASK*/
+            _CTX_BTNDNMASK =@0xB/*_CTX_BTNDNMASK*/
+            _CTX_BTNUPMASK =@0xC/*_CTX_BTNUPMASK*/
+            _CTX_INORGX    =@0xD/*_CTX_INORGX*/
+            _CTX_INORGY    =@0xE/*_CTX_INORGY*/
+            _CTX_INORGZ    =@0xF/*_CTX_INORGZ*/
+            _CTX_INEXTX    =@0x10/*_CTX_INEXTX*/
+            _CTX_INEXTY    =@0x11/*_CTX_INEXTY*/
+            _CTX_INEXTZ    =@0x12/*_CTX_INEXTZ*/
+            _CTX_OUTORGX   =@0x13/*_CTX_OUTORGX*/
+            _CTX_OUTORGY   =@0x14/*_CTX_OUTORGY*/
+            _CTX_OUTORGZ   =@0x15/*_CTX_OUTORGZ*/
+            _CTX_OUTEXTX   =@0x16/*_CTX_OUTEXTX*/
+            _CTX_OUTEXTY   =@0x17/*_CTX_OUTEXTY*/
+            _CTX_OUTEXTZ   =@0x18/*_CTX_OUTEXTZ*/
+            _CTX_SENSX     =@0x19/*_CTX_SENSX*/
+            _CTX_SENSY     =@0x1A/*_CTX_SENSY*/
+            _CTX_SENSZ     =@0x1B/*_CTX_SENSZ*/
+            _CTX_SYSMODE   =@0x1C/*_CTX_SYSMODE*/
+            _CTX_SYSORGX   =@0x1D/*_CTX_SYSORGX*/
+            _CTX_SYSORGY   =@0x1E/*_CTX_SYSORGY*/
+            _CTX_SYSEXTX   =@0x1F/*_CTX_SYSEXTX*/
+            _CTX_SYSEXTY   =@0x20/*_CTX_SYSEXTY*/
+            _CTX_SYSSENSX  =@0x21/*_CTX_SYSSENSX*/
+            _CTX_SYSSENSY  =@0x22/*_CTX_SYSSENSY*/
+            _CTX_MAX       =@0x22/*_CTX_MAX*/
+        _WTI_DEVICES =@0x64/*_WTI_DEVICES*/
+            _DVC_NAME        =@1/*_DVC_NAME*/
+            _DVC_HARDWARE    =@2/*_DVC_HARDWARE*/
+            _DVC_NCSRTYPES   =@3/*_DVC_NCSRTYPES*/
+            _DVC_FIRSTCSR    =@4/*_DVC_FIRSTCSR*/
+            _DVC_PKTRATE     =@5/*_DVC_PKTRATE*/
+            _DVC_PKTDATA     =@6/*_DVC_PKTDATA*/
+            _DVC_PKTMODE     =@7/*_DVC_PKTMODE*/
+            _DVC_CSRDATA     =@8/*_DVC_CSRDATA*/
+            _DVC_XMARGIN     =@9/*_DVC_XMARGIN*/
+            _DVC_YMARGIN     =@0xA/*_DVC_YMARGIN*/
+            _DVC_ZMARGIN     =@0xB/*_DVC_ZMARGIN*/
+            _DVC_X           =@0xC/*_DVC_X*/
+            _DVC_Y           =@0xD/*_DVC_Y*/
+            _DVC_Z           =@0xE/*_DVC_Z*/
+            _DVC_NPRESSURE   =@0xF/*_DVC_NPRESSURE*/
+            _DVC_TPRESSURE   =@0x10/*_DVC_TPRESSURE*/
+            _DVC_ORIENTATION =@0x11/*_DVC_ORIENTATION*/
+            _DVC_ROTATION    =@0x12/*_DVC_ROTATION*/
+            _DVC_PNPID       =@0x13/*_DVC_PNPID*/
+            _DVC_MAX         =@0x13/*_DVC_MAX*/
+        _WTI_CURSORS =@0xC8/*_WTI_CURSORS*/
+            _CSR_NAME         =@1/*_CSR_NAME*/
+            _CSR_ACTIVE       =@2/*_CSR_ACTIVE*/
+            _CSR_PKTDATA      =@3/*_CSR_PKTDATA*/
+            _CSR_BUTTONS      =@4/*_CSR_BUTTONS*/
+            _CSR_BUTTONBITS   =@5/*_CSR_BUTTONBITS*/
+            _CSR_BTNNAMES     =@6/*_CSR_BTNNAMES*/
+            _CSR_BUTTONMAP    =@7/*_CSR_BUTTONMAP*/
+            _CSR_SYSBTNMAP    =@8/*_CSR_SYSBTNMAP*/
+            _CSR_NPBUTTON     =@9/*_CSR_NPBUTTON*/
+            _CSR_NPBTNMARKS   =@0xA/*_CSR_NPBTNMARKS*/
+            _CSR_NPRESPONSE   =@0xB/*_CSR_NPRESPONSE*/
+            _CSR_TPBUTTON     =@0xC/*_CSR_TPBUTTON*/
+            _CSR_TPBTNMARKS   =@0xD/*_CSR_TPBTNMARKS*/
+            _CSR_TPRESPONSE   =@0xE/*_CSR_TPRESPONSE*/
+            _CSR_PHYSID       =@0xF/*_CSR_PHYSID*/
+            _CSR_MODE         =@0x10/*_CSR_MODE*/
+            _CSR_MINPKTDATA   =@0x11/*_CSR_MINPKTDATA*/
+            _CSR_MINBUTTONS   =@0x12/*_CSR_MINBUTTONS*/
+            _CSR_CAPABILITIES =@0x13/*_CSR_CAPABILITIES*/
+            _CSR_TYPE         =@0x14/*_CSR_TYPE*/
+            _CSR_MAX          =@0x14/*_CSR_MAX*/
+        _WTI_EXTENSIONS =@0x12C/*_WTI_EXTENSIONS*/
+            _EXT_NAME       =@1/*_EXT_NAME*/
+            _EXT_TAG        =@2/*_EXT_TAG*/
+            _EXT_MASK       =@3/*_EXT_MASK*/
+            _EXT_SIZE       =@4/*_EXT_SIZE*/
+            _EXT_AXES       =@5/*_EXT_AXES*/
+            _EXT_DEFAULT    =@6/*_EXT_DEFAULT*/
+            _EXT_DEFCONTEXT =@7/*_EXT_DEFCONTEXT*/
+            _EXT_DEFSYSCTX  =@8/*_EXT_DEFSYSCTX*/
+            _EXT_CURSORS    =@9/*_EXT_CURSORS*/
+            _EXT_DEVICES    =@0x6E/*_EXT_DEVICES*/
+            _EXT_MAX        =@0xD2/*_EXT_MAX*/
+        _LCNAMELEN   =@0x28/*_LCNAMELEN*/
+        _LCNAMELENW  =@0x50/*_LCNAMELEN*/
+        _LC_NAMELEN  =@0x28/*_LC_NAMELEN*/
+        _LC_NAMELENW =@0x50/*_LC_NAMELENW*/
+        _CXO_SYSTEM      =@1/*_CXO_SYSTEM*/
+        _CXO_PEN         =@2/*_CXO_PEN*/
+        _CXO_MESSAGES    =@4/*_CXO_MESSAGES*/
+        _CXO_MARGIN      =@0x8000/*_CXO_MARGIN*/
+        _CXO_MGNINSIDE   =@0x4000/*_CXO_MGNINSIDE*/
+        _CXO_CSRMESSAGES =@8/*_CXO_CSRMESSAGES*/
+        _CXS_DISABLED    =@1/*_CXS_DISABLED*/
+        _CXS_OBSCURED    =@2/*_CXS_OBSCURED*/
+        _CXS_ONTOP       =@4/*_CXS_ONTOP*/
+        _CXL_INSIZE      =@1/*_CXL_INSIZE*/
+        _CXL_INASPECT    =@2/*_CXL_INASPECT*/
+        _CXL_SENSITIVITY =@4/*_CXL_SENSITIVITY*/
+        _CXL_MARGIN      =@8/*_CXL_MARGIN*/
+        _CXL_SYSOUT      =@0x10/*_CXL_SYSOUT*/
+        _TPS_PROXIMITY =@1/*_TPS_PROXIMITY*/
+        _TPS_QUEUE_ERR =@2/*_TPS_QUEUE_ERR*/
+        _TPS_MARGIN    =@4/*_TPS_MARGIN*/
+        _TPS_GRAB      =@8/*_TPS_GRAB*/
+        _TPS_INVERT    =@0x10/*_TPS_INVERT*/
+        end intellisense**/
+        
+        /**intellisense()
+        _rotPitch = @roPitch/*_rotPitch*/
+        _rotRoll  = @roRoll/*_rotRoll*/
+        _rotYaw   = @roYaw/*_rotYaw*/
+        _TBN_NONE =@0/*_TBN_NONE*/
+        _TBN_UP   =@1/*_TBN_UP*/
+        _TBN_DOWN =@2/*_TBN_DOWN*/
+        _WTDC_NONE    =@0/*_WTDC_NONE*/
+        _WTDC_CANCEL  =@1/*_WTDC_CANCEL*/
+        _WTDC_OK      =@2/*_WTDC_OK*/
+        _WTDC_RESTART =@3/*_WTDC_RESTART*/
+        _WTH_PLAYBACK    =@1/*_WTH_PLAYBACK*/
+        _WTH_RECORD      =@2/*_WTH_RECORD*/
+        _WTHC_GETLPLPFN  =@(-3)/*_WTHC_GETLPLPFN*/
+        _WTHC_LPLPFNNEXT =@(-2)/*_WTHC_LPLPFNNEXT*/
+        _WTHC_LPFNNEXT   =@(-1)/*_WTHC_LPFNNEXT*/
+        _WTHC_ACTION     =@0/*_WTHC_ACTION*/
+        _WTHC_GETNEXT    =@1/*_WTHC_GETNEXT*/
+        _WTHC_SKIP       =@2/*_WTHC_SKIP*/
+        _WTP_LPDEFAULT   =@((topointer(-1))/*_WTP_LPDEFAULT*/
+        _WTP_DWDEFAULT   =@((tonumber(-1))/*_WTP_DWDEFAULT*/
+        _PKEXT_ABSOLUTE  =@1/*_PKEXT_ABSOLUTE*/
+        _PKEXT_RELATIVE  =@2/*_PKEXT_RELATIVE*/
+        _WTX_OBT         =@0/*Out of bounds tracking *//*_WTX_OBT*/
+        _WTX_FKEYS       =@1/*Function keys *//*_WTX_FKEYS*/
+        _WTX_TILT        =@2/*Raw Cartesian tilt; 1.1 *//*_WTX_TILT*/
+        _WTX_CSRMASK     =@3/*select input by cursor type; 1.1 *//*_WTX_CSRMASK*/
+        _WTX_XBTNMASK    =@4/*Extended button mask; 1.1 *//*_WTX_XBTNMASK*/
+        _WTX_EXPKEYS     =@5/*ExpressKeys; 1.3 - DEPRECATED: see WTX_EXPKEYS2 *//*_WTX_EXPKEYS*/
+        _WTX_TOUCHSTRIP  =@6/*TouchStrips; 1.4 *//*_WTX_TOUCHSTRIP*/
+        _WTX_TOUCHRING   =@7/*TouchRings; 1.4 *//*_WTX_TOUCHRING*/
+        _WTX_EXPKEYS2    =@8/*ExpressKeys; 1.4 *//*_WTX_EXPKEYS2*/
+        _TABLET_PROPERTY_CONTROLCOUNT  =@0/*UINT32: number of physical controls on tablet/*_TABLET_PROPERTY_CONTROLCOUNT*/
+        _TABLET_PROPERTY_FUNCCOUNT     =@1/*UINT32: number of functions of control/*_TABLET_PROPERTY_FUNCCOUNT*/
+        _TABLET_PROPERTY_AVAILABLE     =@2/*BOOL: control/mode is available for override/*_TABLET_PROPERTY_AVAILABLE*/
+        _TABLET_PROPERTY_MIN           =@3/*UINT32: minimum value/*_TABLET_PROPERTY_MIN*/
+        _TABLET_PROPERTY_MAX           =@4/*UINT32: maximum value/*_TABLET_PROPERTY_MAX*/
+        _TABLET_PROPERTY_OVERRIDE      =@5/*BOOL: control is overridden/*_TABLET_PROPERTY_OVERRIDE*/
+        _TABLET_PROPERTY_OVERRIDE_NAME =@6/*UTF-8: Displayable name when control is overridden/*_TABLET_PROPERTY_OVERRIDE_NAME*/
+        _TABLET_PROPERTY_OVERRIDE_ICON =@7/*Image: Icon to show when control is overridden/*_TABLET_PROPERTY_OVERRIDE_ICON*/
+        _TABLET_PROPERTY_ICON_WIDTH    =@8/*UINT32: Pixel width of icon display/*_TABLET_PROPERTY_ICON_WIDTH*/
+        _TABLET_PROPERTY_ICON_HEIGHT   =@9/*UINT32: Pixel height of icon display/*_TABLET_PROPERTY_ICON_HEIGHT*/
+        _TABLET_PROPERTY_ICON_FORMAT   =@10/*UINT32: UINT32: Pixel format of icon display (see TABLET_ICON_FMT_*)/*_TABLET_PROPERTY_ICON_FORMAT*/
+        _TABLET_PROPERTY_LOCATION      =@11/*UINT32: Physical location of control (see TABLET_LOC_*)/*_TABLET_PROPERTY_LOCATION*/
+        _TABLET_ICON_FMT_NONE      =@0/*No display/*_TABLET_ICON_FMT_NONE*/
+        _TABLET_ICON_FMT_4BPP_GRAY =@1/*4bpp grayscale/*_TABLET_ICON_FMT_4BPP_GRAY*/
+        _TABLET_LOC_LEFT       =@0/*_TABLET_LOC_LEFT*/
+        _TABLET_LOC_RIGHT      =@1/*_TABLET_LOC_RIGHT*/
+        _TABLET_LOC_TOP        =@2/*_TABLET_LOC_TOP*/
+        _TABLET_LOC_BOTTOM     =@3/*_TABLET_LOC_BOTTOM*/
+        _TABLET_LOC_TRANSDUCER =@4/*_TABLET_LOC_TRANSDUCER*/
+        end intellisense**/
+        
+        /**intellisense()
+        _ORD_WTInfoA        =@20/*_ORD_WTInfoA*/
+        _ORD_WTInfoW        =@1020/*_ORD_WTInfoW*/
+        _ORD_WTOpenA        =@21/*_ORD_WTOpenA*/
+        _ORD_WTOpenW        =@1021/*_ORD_WTOpenW*/
+        _ORD_WTClose        =@22/*_ORD_WTClose*/
+        _ORD_WTPacketsGet   =@23/*_ORD_WTPacketsGet*/
+        _ORD_WTPacket       =@24/*_ORD_WTPacket*/
+        _ORD_WTEnable       =@40/*_ORD_WTEnable*/
+        _ORD_WTOverlap      =@41/*_ORD_WTOverlap*/
+        _ORD_WTConfig       =@60/*_ORD_WTConfig*/
+        _ORD_WTGetA         =@61/*_ORD_WTGetA*/
+        _ORD_WTGetW         =@1061/*_ORD_WTGetW*/
+        _ORD_WTSetA         =@62/*_ORD_WTSetA*/
+        _ORD_WTSetW         =@1062/*_ORD_WTSetW*/
+        _ORD_WTExtGet       =@63/*_ORD_WTExtGet*/
+        _ORD_WTExtSet       =@64/*_ORD_WTExtSet*/
+        _ORD_WTSave         =@65/*_ORD_WTSave*/
+        _ORD_WTRestore      =@66/*_ORD_WTRestore*/
+        _ORD_WTPacketsPeek  =@80/*_ORD_WTPacketsPeek*/
+        _ORD_WTDataGet      =@81/*_ORD_WTDataGet*/
+        _ORD_WTDataPeek     =@82/*_ORD_WTDataPeek*/
+        _ORD_WTQueuePackets =@83/*_ORD_WTQueuePackets*/
+        _ORD_WTQueueSizeGet =@84/*_ORD_WTQueueSizeGet*/
+        _ORD_WTQueueSizeSet =@85/*_ORD_WTQueueSizeSet*/
+        _ORD_WTMgrOpen                  =@100/*_ORD_WTMgrOpen*/
+        _ORD_WTMgrClose                 =@101/*_ORD_WTMgrClose*/
+        _ORD_WTMgrContextEnum           =@120/*_ORD_WTMgrContextEnum*/
+        _ORD_WTMgrContextOwner          =@121/*_ORD_WTMgrContextOwner*/
+        _ORD_WTMgrDefContext            =@122/*_ORD_WTMgrDefContext*/
+        _ORD_WTMgrDefContextEx          =@206/*_ORD_WTMgrDefContextEx*/
+        _ORD_WTMgrDeviceConfig          =@140/*_ORD_WTMgrDeviceConfig*/
+        _ORD_WTMgrConfigReplace         =@141/*_ORD_WTMgrConfigReplace*/
+        _ORD_WTMgrPacketHook            =@160/*_ORD_WTMgrPacketHook*/
+        _ORD_WTMgrPacketHookDefProc     =@161/*_ORD_WTMgrPacketHookDefProc*/
+        _ORD_WTMgrExt                   =@180/*_ORD_WTMgrExt*/
+        _ORD_WTMgrCsrEnable             =@181/*_ORD_WTMgrCsrEnable*/
+        _ORD_WTMgrCsrButtonMap          =@182/*_ORD_WTMgrCsrButtonMap*/
+        _ORD_WTMgrCsrPressureBtnMarks   =@183/*_ORD_WTMgrCsrPressureBtnMarks*/
+        _ORD_WTMgrCsrPressureResponse   =@184/*_ORD_WTMgrCsrPressureResponse*/
+        _ORD_WTMgrCsrExt                =@185/*_ORD_WTMgrCsrExt*/
+        _ORD_WTQueuePacketsEx           =@200/*_ORD_WTQueuePacketsEx*/
+        _ORD_WTMgrConfigReplaceExA      =@202/*_ORD_WTMgrConfigReplaceExA*/
+        _ORD_WTMgrConfigReplaceExW      =@1202/*_ORD_WTMgrConfigReplaceExW*/
+        _ORD_WTMgrPacketHookExA         =@203/*_ORD_WTMgrPacketHookExA*/
+        _ORD_WTMgrPacketHookExW         =@1203/*_ORD_WTMgrPacketHookExW*/
+        _ORD_WTMgrPacketUnhook          =@204/*_ORD_WTMgrPacketUnhook*/
+        _ORD_WTMgrPacketHookNext        =@205/*_ORD_WTMgrPacketHookNext*/
+        _ORD_WTMgrCsrPressureBtnMarksEx =@201/*_ORD_WTMgrCsrPressureBtnMarksEx*/
+        end intellisense**/
+        }/*}}*/
+        /*API_加载{{*/{//_
+        /*intellisense()*/
+        Wintab32 = ..raw.loadDll("Wintab32.dll")
+        var wt = Wintab32
+        gpWTInfoA                    := wt.api("WTInfoA"                   , "INT UINT(INT UINT, INT UINT, str&LPVOID)")
+        gpWTInfoW                    := wt.api("WTInfoW"                   , "INT UINT(INT UINT, INT UINT, ptr LPVOID)")
+        gpWTInfoAS                   := wt.api("WTInfoA"                   , "INT UINT(INT UINT, INT UINT, struct&LPVOID)")
+        gpWTInfoWS                   := wt.api("WTInfoW"                   , "INT UINT(INT UINT, INT UINT, struct&LPVOID)")
+        gpWTInfo                     := wt.api("WTInfo"                    , "INT UINT(INT UINT, INT UINT, struct&LPVOID)")
+        gpWTOpenA                    := wt.api("WTOpenA"                   , "int HCTX(int HWND, struct LPLOGCONTEXTA, INT BOOL)")
+        gpWTOpenW                    := wt.api("WTOpenW"                   , "int HCTX(int HWND, struct LPLOGCONTEXTW, INT BOOL)")
+        gpWTOpen                     := wt.api("WTOpen"                    , "int HCTX(int HWND, struct LPLOGCONTEXT, INT BOOL)")
+        gpWTClose                    := wt.api("WTClose"                   , "INT BOOL(int HCTX)")
+        gpWTPacketsGet               := wt.api("WTPacketsGet"              , "int int(int HCTX, int int, struct&LPVOID)")
+        gpWTPacket                   := wt.api("WTPacket"                  , "INT BOOL(int HCTX, INT UINT, struct&LPVOID)")
+        gpWTEnable                   := wt.api("WTEnable"                  , "INT BOOL(int HCTX, INT BOOL)")
+        gpWTOverlap                  := wt.api("WTOverlap"                 , "INT BOOL(int HCTX, INT BOOL)")
+        gpWTConfig                   := wt.api("WTConfig"                  , "INT BOOL(int HCTX, int HWND)")
+        gpWTGetA                     := wt.api("WTGetA"                    , "INT BOOL(int HCTX, struct&LPLOGCONTEXTA)")
+        gpWTGetW                     := wt.api("WTGetW"                    , "INT BOOL(int HCTX, struct&LPLOGCONTEXTW)")
+        gpWTGet                      := wt.api("WTGet"                     , "INT BOOL(int HCTX, struct&LPLOGCONTEXT)")
+        gpWTSetA                     := wt.api("WTSetA"                    , "INT BOOL(int HCTX, struct&LPLOGCONTEXTA)")
+        gpWTSetW                     := wt.api("WTSetW"                    , "INT BOOL(int HCTX, struct&LPLOGCONTEXTW)")
+        gpWTSet                      := wt.api("WTSet"                     , "INT BOOL(int HCTX, struct&LPLOGCONTEXT)")
+        gpWTExtGet                   := wt.api("WTExtGet"                  , "INT BOOL(int HCTX, INT UINT, ptr LPVOID)")
+        gpWTExtSet                   := wt.api("WTExtSet"                  , "INT BOOL(int HCTX, INT UINT, ptr LPVOID)")
+        gpWTSave                     := wt.api("WTSave"                    , "INT BOOL(int HCTX, ptr LPVOID)")
+        gpWTRestore                  := wt.api("WTRestore"                 , "int HCTX(int HWND, ptr LPVOID, INT BOOL)")
+        gpWTPacketsPeek              := wt.api("WTPacketsPeek"             , "int int(int HCTX, int int, struct&LPVOID)")
+        gpWTDataGet                  := wt.api("WTDataGet"                 , "int int(int HCTX, INT UINT, INT UINT, int int, ptr LPVOID, int&LPINT)")
+        gpWTDataPeek                 := wt.api("WTDataPeek"                , "int int(int HCTX, INT UINT, INT UINT, int int, ptr LPVOID, int&LPINT)")
+        //gpWTQueuePackets           := wt.api("WTQueuePackets"            , "INT DWORD(int HCTX)") //cannot find
+        gpWTQueueSizeGet             := wt.api("WTQueueSizeGet"            , "int int(int HCTX)")
+        gpWTQueueSizeSet             := wt.api("WTQueueSizeSet"            , "INT BOOL(int HCTX, int int)")
+        gpWTMgrOpen                  := wt.api("WTMgrOpen"                 , "int HMGR(int HWND, INT UINT)")
+        gpWTMgrClose                 := wt.api("WTMgrClose"                , "INT BOOL(int HMGR)")
+        gpWTMgrContextEnum           := wt.api("WTMgrContextEnum"          , "INT BOOL(int HMGR, PTR WTENUMPROC, INT LPARAM)")
+        gpWTMgrContextOwner          := wt.api("WTMgrContextOwner"         , "int HWND(int HMGR, int HCTX)")
+        gpWTMgrDefContext            := wt.api("WTMgrDefContext"           , "int HCTX(int HMGR, INT BOOL)")
+        gpWTMgrDefContextEx          := wt.api("WTMgrDefContextEx"         , "int HCTX(int HMGR, INT UINT, INT BOOL)"/* 1.1 */)
+        gpWTMgrDeviceConfig          := wt.api("WTMgrDeviceConfig"         , "INT UINT(int HMGR, INT UINT, int HWND)")
+        //gpWTMgrConfigReplace       := wt.api("WTMgrConfigReplace"        , "INT BOOL(int HMGR, INT BOOL, WTCONFIGPROC)") //cannot find
+        //gpWTMgrPacketHook          := wt.api("WTMgrPacketHook"           , "ptr WTHOOKPROC(int HMGR, INT BOOL, int int, ptr WTHOOKPROC)") //cannot find
+        //gpWTMgrPacketHookDefProc   := wt.api("WTMgrPacketHookDefProc"    , "ptr LRESULT(int int, INT WPARAM, INT LPARAM, LPWTHOOKPROC)")//cannot find
+        gpWTMgrExt                   := wt.api("WTMgrExt"                  , "INT BOOL(int HMGR, INT UINT, ptr LPVOID)")
+        gpWTMgrCsrEnable             := wt.api("WTMgrCsrEnable"            , "INT BOOL(int HMGR, INT UINT, INT BOOL)")
+        gpWTMgrCsrButtonMap          := wt.api("WTMgrCsrButtonMap"         , "INT BOOL(int HMGR, INT UINT, byte*LPBYTE, byte*LPBYTE)")
+        gpWTMgrCsrPressureBtnMarks   := wt.api("WTMgrCsrPressureBtnMarks"  , "INT BOOL(int HMGR, INT UINT, INT DWORD, INT DWORD)")
+        gpWTMgrCsrPressureResponse   := wt.api("WTMgrCsrPressureResponse"  , "INT BOOL(int HMGR, INT UINT, PTR UINT_FAR, PTR UINT_FAR)")
+        gpWTMgrCsrExt                := wt.api("WTMgrCsrExt"               , "INT BOOL(int HMGR, INT UINT, INT UINT, ptr LPVOID)")
+        gpWTQueuePacketsEx           := wt.api("WTQueuePacketsEx"          , "INT BOOL(int HCTX, PTR UINT_FAR, PTR UINT_FAR)")
+        gpWTMgrConfigReplaceExA      := wt.api("WTMgrConfigReplaceExA"     , "INT BOOL(int HMGR, INT BOOL, str LPSTR, str LPSTR)")
+        gpWTMgrConfigReplaceExW      := wt.api("WTMgrConfigReplaceExW"     , "INT BOOL(int HMGR, INT BOOL, str LPWSTR, str LPSTR)")
+        gpWTMgrConfigReplaceEx       := wt.api("WTMgrConfigReplaceEx"      , "INT BOOL(int HMGR, INT BOOL, str LPSTR, str LPSTR)")
+        gpWTMgrPacketHookExA         := wt.api("WTMgrPacketHookExA"        , "int HWTHOOK(int HMGR, int int, str LPSTR, str LPSTR)")
+        gpWTMgrPacketHookExW         := wt.api("WTMgrPacketHookExW"        , "int HWTHOOK(int HMGR, int int, str LPWSTR, str LPSTR)")
+        gpWTMgrPacketHookEx          := wt.api("WTMgrPacketHookEx"         , "int HWTHOOK(int HMGR, int int, str LPSTR, str LPSTR)")
+        gpWTMgrPacketUnhook          := wt.api("WTMgrPacketUnhook"         , "INT BOOL(int HWTHOOK)")
+        gpWTMgrPacketHookNext        := wt.api("WTMgrPacketHookNext"       , "ptr LRESULT(int HWTHOOK, int int, INT WPARAM, INT LPARAM)")
+        gpWTMgrCsrPressureBtnMarksEx := wt.api("WTMgrCsrPressureBtnMarksEx", "INT BOOL(int HMGR, INT UINT, PTR UINT_FAR, PTR UINT_FAR)")
+        //// API 声明有误？联系我 ！
+        //QQ: 997596439
+        //MAILTO: 997596@Gmail.com
+        /*end intellisense*/
+        }/*}}*/
+        /*初始化WT{{*/{//_
+            //检查WinTab服务
+            if!gpWTInfo(0, 0, {}) return error("WinTab服务不可用", 2)
+
+            //检查驱动
+            if ..string.cmp(
+                exWTInfoW(0x64/*_WTI_DEVICES*/, 1/*_DVC_NAME*/, 0x50/*_LC_NAMELENW*/):"",
+                'WACOM'u, 10) return error("Wacom板驱动未装", 2)
+
+            //检查倾角支持
+            var len, TpOri = gpWTInfo(0x64/*_WTI_DEVICES*/, 0x11/*_DVC_ORIENTATION*/, 
+                {struct azi = AXIS(); struct alt = AXIS(); struct z = AXIS()})
+            if len ? TpOri.azi.axResolution ? TpOri.alt.axResolution{
+                _aziFactor = FIX_DOUBLE(TpOri.azi.axResolution) / (2 * math.pi)
+                _altFactor = FIX_DOUBLE(TpOri.alt.axResolution) / (2 * math.pi)
+                _altAdjust = TpOri.alt.axMax / _altFactor
+                _tilt_support = true
+            }else {
+                _tilt_support = false
+            }
+        }/*}}*/
+        /*元表方法{{*/{
+            _meta = util.metaProperty(
+                open       = function(hWnd, lcMine){//_
+                    owner.hTab = gpWTOpenW(hWnd, lcMine, 1) : e("开板失败！")
+                }
+                close      = function(){//_
+                    return gpWTClose(owner.hTab) : e("闭板失败！")
+                }
+                getPacket  = function(wParam){//_
+                    return rget(2, gpWTPacket(owner.hTab , wParam, owner.packet))
+                }
+                packetsGet = function(c, packets){//_
+                    return gpWTPacketsGet(owner.hTab, c, packets)
+                }
+                packet     = function(wParam){//_
+                    return gpWTPacket(owner.hTab, wParam, owner.packet)
+                }
+                enable     = function(wParam){//_
+                    return gpWTEnable(owner.hTab, wParam)
+                }
+                overlap    = function(bool){//_
+                    return gpWTOverlap(owner.hTab, bool)
+                }
+                getA       = function(lc){//_
+                    return gpWTGetA(owner.hTab, lc)
+                }
+                getW       = function(lc){//_
+                    return gpWTGetW(owner.hTab, lc)
+                }
+                setA       = function(lc){//_
+                    return gpWTSetA(owner.hTab, lc)
+                }
+                setW       = function(lc){//_
+                    return gpWTSetW(owner.hTab, lc)
+                }
+                config     = function(){//_
+                    return gpWTConfig(owner.hTab, owner.hWnd)
+                }
+                _topointer = function(){//_
+                    return topointer(owner.hTab)
+                }
+                _tonumber  = function(){//_
+                    return owner.hTab
+                }
+            )
+        }/*}}*/
+    }
+}

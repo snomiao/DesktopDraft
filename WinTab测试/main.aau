@@ -1,0 +1,50 @@
+﻿//wintab库测试用例
+import css.wintab32
+import gdip
+import win
+import mouse
+import win.ui
+var winform = win.form(text="Wintab测试"; right=800; bottom=500)
+winform.center()
+winform.show()
+
+var g   = gdip.graphics(winform)
+var pen = gdip.pen(0xFF000000, 1, 2)
+var bru = gdip.solidBrush(0xFF000000)
+var lx, ly = 0, 0
+var lprs = 0
+var szLine  = 20 //px
+var szErase = 50 //px
+var bgcolor = 0xFFEEEEEE
+var tab = css.wintab32(winform, , function(pkt){
+	var prs = pkt.pkNormalPressure
+	var btn = pkt.pkButtons
+	if prs{
+		x, y = win.toClient(winform.hwnd, mouse.getPos())
+		if lprs == 0{
+			lx, ly = x, y
+		}
+		select btn{
+			case 1{ /*直接画*/
+				size = prs * szLine / 1024
+				pen.width = size
+				bru.color = 0xFF000000
+				pen.color = bru.color
+				g.fillEllipse(bru, lx - size / 2, ly - size / 2, size, size)
+				g.drawLine(pen, x, y, lx, ly)
+			}
+			case 3{ /*橡皮擦*/
+				size = prs * szErase / 1024
+				pen.width = size
+				bru.color = bgcolor
+				pen.color = bru.color
+				g.fillEllipse(bru, lx - size / 2, ly - size / 2, size, size)
+				g.drawLine(pen, x, y, lx, ly)
+			}
+		}
+		lx, ly = x, y
+	}
+	lprs = prs
+})
+
+win.loopMessage()

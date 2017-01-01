@@ -1,0 +1,141 @@
+﻿//Unicode支持
+///lib/css/unicode.aau
+
+//更新记录 v1.2
+//# 2015-04-04 雪星 (997596@gmail.com)
+//创建
+//# 2015-04-12 雪星 (997596@gmail.com)
+//添加了 SetText(), GetText()
+
+T_UTF16_TO_UTF16 = function(istr){
+        var ostr, ss, m = "", "", ""
+        while(#istr){
+            do{
+                m = string.match(istr, "^<\\u\x\x\x\x>")
+                if #m{
+                    istr = string.sub(istr, 1+#m)
+                    ostr ++= eval("'" ++ m ++ "'")
+                }
+            }while #m
+            
+            m = string.match(istr, "^.")
+            if #m{
+                istr = string.sub(istr, 1+#m)
+                ostr ++= string.toUnicode(m, 0, false)
+            }
+        }
+        return ostr ++ '\0\0'
+}
+
+T_UTF8_TO_UTF16 = function(istr){
+    var ostr, ss, m = "", "", ""
+    while(#istr){
+        do{
+            m = string.match(istr, "^<\\u\x\x\x\x>")
+            if #m{
+                istr = string.sub(istr, 1+#m)
+                ss = eval("'" ++ m ++ "'")
+                ss = string.fromUnicode(ss)
+                ss = string.toUnicode(ss, 65001, false)
+                ostr ++= ss
+            }
+        }while #m
+        m = string.match(istr, "^.")
+        if #m{
+            istr = string.sub(istr, 1+#m)
+            ostr ++= string.toUnicode(m, ,false)
+        }
+    }
+    return ostr ++ '\0\0'
+}
+UTF16_TO_UTF8 = function(str){
+    return string.fromUnicode(str, 65001)
+}
+UTF8_TO_UTF16 = function(str){
+    return string.toUnicode(str, 65001)
+}
+ANSI_TO_UTF16 = function(str, x0x0){
+    return string.toUnicode(str, 0, x0x0)
+}
+L = ANSI_TO_UTF16
+
+namespace css{
+    ::SetWindowTextW = ::User32.api("SetWindowTextW","INT(addr,str)")
+    ::GetWindowTextW = ::User32.api("GetWindowTextW","INT(addr,str,int)")
+}
+
+readApiW = function(bufpos, func, ...){
+	var params = {...}
+	var len = params[3]
+	var buf = ..raw.malloc(len, 0)
+	params[3] = buf
+	var re = func(table.unpack(params))
+	return ..raw.tostring(buf, 1, re)
+}
+SetText = function(hwnd, text){
+    var pbuf = ..raw.malloc(#text, text)
+    return ::SetWindowTextW(hwnd, pbuf)
+}
+GetText = function(hwnd, cbuf = 2048){
+    var pbuf = ..raw.malloc(cbuf)
+    var len = ::GetWindowTextW(hwnd, pbuf, cbuf)
+    return ..raw.str(pbuf, true)
+}
+
+//if win ? win.clip
+namespace win.clip{
+    writeUnicode = function(str){
+        return write(str, 0xD/*_CF_UNICODETEXT*/); 
+    }
+}
+
+/***/  //这个想法很.....，已弃用
+/*UnicodeAPI{{*/
+/*写在DSG上方，把所有API换成支持Unicode版本*/
+{
+var u = ::User32
+var k = ::Kernel32
+CallWindowProc        = u.api("CallWindowProcW","int(ptr lpPrevWndFunc,addr hwnd,INT Msg,ADDR wParam,addr lParam)")
+CreateWindowEx        = u.api("CreateWindowExW","int(INT exStyle,string className,string windowName,INT style,int x,int y,int width, int height,addr hwndParent,addr hMenu,pointer hlnstance,ptr lpParam)")
+GetClassInfoEx        = u.api("GetClassInfoExW","int(ptr,pointer,struct&)")
+GetWindowLong         = u.api("GetWindowLongW","int(addr hwnd,int nIndex)")
+LoadCursor            = u.api("LoadCursorW","ptr(ptr,string)")
+LoadIcon              = u.api("LoadIconW","ptr(ptr,string)")
+PostMessage           = u.api("PostMessageW","addr(addr hwnd,INT msg,ADDR wParam,addr lParam)")
+PostThreadMessage     = u.api("PostThreadMessageW","addr(int idThread,INT msg,ADDR wParam,addr lParam)")
+RegisterWindowMessage = u.api("RegisterWindowMessageW","INT(string)")
+SendMessage           = u.api("SendMessageW","addr(addr hwnd,INT msg,ptr wParam,ptr lParam)")
+SendMessageByInt      = u.api("SendMessageW","addr(addr hwnd,INT msg,int &wParam,int &lParam)")
+SendMessageByStr      = u.api("SendMessageW","addr(int,INT,int,str &lParam)")
+SendMessageByString   = u.api("SendMessageW","addr(int,INT,int,string &lParam)")
+SendMessageByStruct   = u.api("SendMessageW","addr(int,INT,int,struct &lParam)")
+SendMessageInt        = u.api("SendMessageW","addr(addr hwnd,INT msg,ADDR wParam,addr lParam)")
+SendMessageTimeout    = u.api("SendMessageTimeoutW","addr(addr hwnd,INT msg,ptr wParam,ptr lParam,INT flags,INT timeout,int & resultult)")
+SetWindowLong         = u.api("SetWindowLongW","int(addr hwnd,int nIndex,int dwNewLong)")
+SetWindowPointer      = u.api("SetWindowLongW","ptr(addr hwnd,int nIndex,ptr ptrNew)")
+SystemParametersInfo  = u.api("SystemParametersInfoW","int(INT act, INT param, struct& pvParam,INT winIni)")
+win.find              = u.api("FindWindowW","addr( string lpszClass,string lpszWindow)")
+win.findEx            = u.api("FindWindowExW","addr(addr hwndParent,addr hwndChildAfter,string lpszClass,string lpszWindow)")
+win.getClassName      = u.api("GetClassNameW","int( addr hwnd,str  &lpClassName,int nMaxCount )")
+win.getDlgItemText    = u.api("GetDlgItemTextW","INT(int hDlg,int nIDDlgItem, str& lpString, int cchMax)")
+win.messageBox        = u.api("MessageBoxW"," int ( addr hwnd, string text,string caption ,INT type)")
+win.messageBoxTimeout = u.api("MessageBoxTimeoutW","int(addr hwnd,string text,string caption,int type,int lang,int tmout)")
+win.setText           = u.api("SetWindowTextW","INT(addr hwnd,string lpString)")
+win.setTextById       = u.api("SetDlgItemTextW","INT(int hDlg,int nIDDlgItem, string lpString )")
+win.getEnvironmentVariable = k.api("GetEnvironmentVariableW","INT(str name,str &v,INT size)")
+win.setenv                 = k.api("SetEnvironmentVariableW","INT(str name,str v)")
+}
+/*}}*/
+/***/
+namespace css.unicode{}
+/**intellisense(css)
+unicode = Unicode 支持库, 可以支持win.clip.writeUnicode写入Unicode字串到剪贴板
+**/
+/**intellisense()
+T_UTF16_TO_UTF16(str)      = 
+T_UTF8_TO_UTF16(str)       = 
+UTF8_TO_UTF16(str)         = 
+UTF16_TO_UTF8(str)         = 
+win.clip.writeUnicode(str) = 写入剪贴板
+UnicodeAPI = @/*UnicodeAPI{{*/\n/*写在import win.ui下方，把所有API换成支持Unicode的版本*/\n{\nvar u,k=::User32,::Kernel32\nCallWindowProc=u.api("CallWindowProcW","int(ptr,addr,INT,ADDR,addr)")\nCreateWindowEx=u.api("CreateWindowExW","int(INT,str,str,INT,int,int,int,int,addr,addr,ptr,ptr)")\nGetClassInfoEx=u.api("GetClassInfoExW","int(ptr,ptr,struct&)")\nGetWindowLong=u.api("GetWindowLongW","int(addr,int)")\nLoadCursor=u.api("LoadCursorW","ptr(ptr,str)")\nLoadIcon=u.api("LoadIconW","ptr(ptr,str)")\nPostMessage=u.api("PostMessageW","addr(addr,INT,ADDR,addr)")\nPostThreadMessage=u.api("PostThreadMessageW","addr(int,INT,ADDR,addr)")\nRegisterWindowMessage=u.api("RegisterWindowMessageW","INT(str)")\nSendMessage=u.api("SendMessageW","addr(addr,INT,ptr,ptr)")\nSendMessageByInt=u.api("SendMessageW","addr(addr,INT,int&,int&)")\nSendMessageByStr=u.api("SendMessageW","addr(int,INT,int,str&)")\nSendMessageByString=u.api("SendMessageW","addr(int,INT,int,str&)")\nSendMessageByStruct=u.api("SendMessageW","addr(int,INT,int,struct&)")\nSendMessageInt=u.api("SendMessageW","addr(addr,INT,ADDR,addr)")\nSendMessageTimeout=u.api("SendMessageTimeoutW","addr(addr,INT,ptr,ptr,INT,INT,int&)")\nSetWindowLong=u.api("SetWindowLongW","int(addr,int,int)")\nSetWindowPointer=u.api("SetWindowLongW","ptr(addr,int,ptr)")\nSystemParametersInfo=u.api("SystemParametersInfoW","int(INT,INT,struct&,INT)")\nwin.find=u.api("FindWindowW","addr(str,str)")\nwin.findEx=u.api("FindWindowExW","addr(addr,addr,str,str)")\nwin.getClassName=u.api("GetClassNameW","int(addr,str&,int)")\nwin.getDlgItemText=u.api("GetDlgItemTextW","INT(int,int,str&,int)")\nwin.messageBox=u.api("MessageBoxW"," int(addr,str,str,INT)")\nwin.messageBoxTimeout=u.api("MessageBoxTimeoutW","int(addr,str,str,int,int,int)")\nwin.setText=u.api("SetWindowTextW","INT(addr,str)")\nwin.setTextById=u.api("SetDlgItemTextW","INT(int,int,str)")\nwin.getEnvironmentVariable=k.api("GetEnvironmentVariableW","INT(str,str&,INT)")\nwin.setenv=k.api("SetEnvironmentVariableW","INT(str,str)")\n}\n/*}}*/
+end intellisense**/
