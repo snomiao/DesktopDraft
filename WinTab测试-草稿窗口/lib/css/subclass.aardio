@@ -1,0 +1,96 @@
+﻿//subclass 子类化
+///lib/css/subclass.aau
+
+// 更新记录
+// # 2010.9     crane & lujjjh
+// 创建
+// # 2015/04/23 雪星(997596@gmail.com)
+// 加入mapMsg
+
+/**intellisense()
+css.subclass = 子类化支持库
+css.subclass(winform->hwnd, FuncW) = 子类化一个窗口\nhWnd可以传入一个窗口，或窗口句柄，可选\nFuncW为默认消息处理函数，可选\n返回类
+css.subclass() = !css!subclass.
+?css.subclass = !css!subclass.
+!css!subclass.hook(hWnd, FuncW) = 子类化一个新窗口\nhWnd可以传入一个窗口，或窗口句柄，不可选\nFuncW为默认消息处理函数，可选\n返回自身
+!css!subclass.free() = 释放钩子，此函数会被自动调用\n返回自身
+!css!subclass.mapMsg = @.mapMsg = {\n    [0x3/*_WM_MOVE*/] = 0x00; /*例：删除一个消息子*/\n    [0x5/*_WM_SIZE*/] = function(hwnd, msg, wParam, lParam){\n        /* 例：增并一个消息子\n         * 将此函数表对mapMsg多次赋值可以共存\n         * 后赋的函数先被调用\n         * 如果 一个msg在这里有定义\n         * 那么 创建类时 和 hook() 时传入的函数将不会处理此消息\n         */\n    }\n}
+end intellisense**/
+
+namespace css{
+    subclass = class{
+        ctor(hWnd, FuncW){//_
+            //加载方法
+            this@        = _meta
+            this.map_msg = {}
+            this.hook    = function(hWnd, FuncW){//_
+                owner.free()
+                owner.hWnd = assert(
+                        (type(hWnd) == type.table && hWnd.hwnd)
+                        ? hWnd.hwnd
+                        : hWnd
+                    , "窗口句柄必须是一个数值")
+                FuncW = (type(FuncW) == type.function)
+                        ? FuncW
+                        : function(){}
+                this.wndproc   = function(hwnd, message, wParam, lParam){
+                    var f, ret = this.map_msg[message]
+                    if f ret = f(hwnd, message, wParam, lParam)
+                    else ret = FuncW(hwnd, message, wParam, lParam)
+                    //无论返回false, 还是true, 有返回值直接返回
+                    if ret !== null return ret
+                    return ::CallWindowProcW(this.m_prevProc, hwnd, message, wParam, lParam)
+                }
+                owner.m_FuncW    = ..raw.tostdcall(this.wndproc, "int(int hwnd, int msg, int wParam, int lParam)");
+                owner.m_prevProc = ::SetWindowPointerW(owner.hWnd, 0xFFFFFFFC/*_GWL_WNDPROC*/, owner.m_FuncW)
+                return owner
+            }
+            this.free = function(){//_
+                if !owner.hWnd || !owner.m_FuncW || !owner.m_prevProc return null
+                ::SetWindowPointerW(owner.hWnd, 0xFFFFFFFC/*_GWL_WNDPROC*/, owner.m_prevProc)
+                owner.m_FuncW    = null
+                owner.m_prevProc = null
+                return owner
+            }
+            //扫地
+            ..table.gc(this, this.free)
+            //初始化
+            if hWnd
+                this.hook(hWnd, FuncW)
+        }
+    }
+    namespace subclass{
+        import util.metaProperty
+        /*API_加载{{*/
+        ::SetWindowPointerW := ::User32.api("SetWindowLongW" , "ptr(addr hWnd, int nIndex, ptr value)")
+        ::CallWindowProcW   := ::User32.api("CallWindowProcW", "int(ptr lpPrevWndFunc, addr hWnd, INT Msg, ADDR wParam, addr lParam)")
+        /*}}*/
+        _meta = util.metaProperty(
+            mapMsg = {//_
+                _set = function(tab){
+                    for(msg, newfunc in tab){
+                        //为零则删
+                        if newfunc === 0x00{
+                            owner.map_msg[msg] = null
+                            continue 1
+                        }
+                        //排错
+                        assert(type(newfunc) == type.function, "mapMsg 表内值应为 函数 或 0x00")
+                        //已有则并
+                        owner.map_msg[msg] ?= function(...){
+                            var ret = newfunc(...)
+                            if  ret !== null return ret
+                            var ret = oldfunc(...)
+                            if  ret !== null return ret
+                        }
+                        //未有则增
+                        owner.map_msg[msg] := newfunc
+                    }
+                }
+                _get = function(){
+                    return owner.map_msg
+                }
+            }
+        )
+    }
+}

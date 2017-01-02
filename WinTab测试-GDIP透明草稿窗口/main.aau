@@ -1,0 +1,306 @@
+﻿//wintab库测试用例
+import css.wintab32
+import gdip
+import win
+
+import mouse
+import win.ui
+var winform = win.form(text="Wintab测试"; right=800; bottom=500)
+winform.fullscreen()
+
+
+// 能动性控制
+actived = true
+
+
+import time.performance
+import gdip
+import gdi
+
+class gdipWinSimp{
+    ctor(hwnd){
+        this._hwnd = hwnd
+
+        // 设置分层窗口
+        ::SetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/, ::GetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/) | 0x80000/*_WS_EX_LAYERED*/)
+
+        // 初始化
+        this._init = function(){
+            // 申请窗口 dc
+            this.hdc = ::GetDC(this._hwnd)
+
+            //创建缓冲 dc
+            this.hMemDc = ::CreateCompatibleDC(this.hdc);
+        }
+        this._init()
+
+        // 窗体大小发生变化时重新生成画布
+
+        this.resize = function(){
+            // 获得窗口大小，用来创建相同大小的缓冲 bitmap
+            var x, y, cx, cy = ..win.getPos(this._hwnd);
+            
+            this.width = cx
+            this.height = cy
+
+            // 创建缓冲 bitmap
+            if this.hMemBitmap{
+                ::DeleteObject(this.hMemBitmap)
+            }
+            this.hMemBitmap = ::CreateCompatibleBitmap(this.hdc, this.width, this.height)
+
+            // 绑定缓冲 bitmap 到 缓冲 dc
+            if!this.hOldBitmap{
+                this.hOldBitmap = ::SelectObject(this.hMemDc, this.hMemBitmap)
+            }else{
+                var hLastBitmap = ::SelectObject(this.hMemDc, this.hMemBitmap)
+                ::DeleteObject(hLastBitmap)
+            }
+            
+            
+
+            // 画布
+            if this.g
+                this.g.delete()
+            this.g = ..gdip.graphics(this.hMemDc)
+
+            // 构建绘图更新方法
+            this.tLastUpdate = 0
+            this.update = function(blend = 255){
+            	// 
+				//if!this.needUpdate return; 
+            	// 强制掉帧，防止卡住消息线程
+                var tThisUpdate = ..time.performance.tick()
+                if tThisUpdate - this.tLastUpdate < 25{
+					this.needUpdate = true	
+					return;
+				}
+				// 更新窗口
+                ..gdi.updateLayeredWindow( this._hwnd,
+                                        this.hMemDc,
+                                        ::SIZE(this.width, this.height),
+                                        ..gdi.blendFunction(blend))
+                                        
+				this.tLastUpdate = tThisUpdate
+				this.needUpdate = false
+            }
+            this.drawUpdate = function(draw){
+                draw(this.g)
+                this.update()
+            }
+        }
+        this.resize()
+
+        this.setTransparent = function(transparent){
+            if transparent
+                ::SetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/, ::GetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/) | 0x20/*_WS_EX_TRANSPARENT*/)
+            else
+                ::SetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/, ::GetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/) & ~0x20/*_WS_EX_TRANSPARENT*/)
+        }
+        this.switchTransparent = function(){
+			::SetWindowLong(this._hwnd, -20, ::GetWindowLong(this._hwnd, -20) ^ 0x20/*_WS_EX_TRANSPARENT*/)
+		}
+        //析构
+        this._gc = ..gcdata(
+            _gc = function(){
+                // 删除内存 DC
+                if this.hMemDc{
+                    if this.hOldBitmap{
+                        ::SelectObject(this.hMemDc, this.hOldBitmap);
+                    }
+                    ::DeleteDC(this.hMemDc);
+                }
+
+                // 释放dc
+                ::ReleaseDC(this._hwnd, this.hdc)
+
+                // 取消窗口分层
+                ::SetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/, ::GetWindowLong(this._hwnd, -20/*_GWL_EXSTYLE*/) & ~0x80000/*_WS_EX_LAYERED*/)
+            } 
+        )
+    };
+
+    type="gdipWin";
+    /*对象的所有成员必须用分号分隔*/
+}
+
+
+var gw = gdipWinSimp(winform.hwnd)
+
+gw.resize()
+
+doClear = function(){
+	gw.drawUpdate(function(g){
+		g.clear(0x01000000)
+	})
+}
+doClear()
+var bru = gdip.solidBrush(0xFF000000)
+var pen = gdip.pen(0xFF000000, 1, 2)
+
+var brushadow = gdip.solidBrush(0xFF000000)
+var penshadow = gdip.pen(0xFF000000, 1, 2)
+
+var lx, ly = 0, 0
+var lbtn = 0
+var szLine  = 20 //px
+var szErase = 50 //px
+var bgcolor = 0xFFEEEEEE
+var tab = css.wintab32(winform, , function(pkt){
+	
+    var prs = pkt.pkNormalPressure
+    var btn = pkt.pkButtons
+  	//console.log( pkt.pkX, pkt.pkY, pkt.pkZ, btn, prs)
+    
+	if!actived return;
+    select btn{
+        case 1{ /*直接画*/
+	        var x, y = pkt.pkX, gw.height - pkt.pkY
+	        if lbtn == 0{
+	            lx, ly = x, y
+	        }
+
+            size = prs * szLine / 1024
+            
+            //bru.color = 0xFFFF0000
+            
+            t := 0
+            t+=0.1;
+            if t >= 360
+            	t = 0;
+
+            bru.color = hsb2rgb(t, 1, .9) | 0xFF000000
+            pen.color = bru.color
+            pen.width = size
+            
+            brushadow.color = hsb2rgb(t, 1, 0.2) | 0x88000000
+            penshadow.color = brushadow.color
+            penshadow.width = size
+            gw.drawUpdate(function(g){
+                
+                var dy = 5
+                //g.fillEllipse(brushadow, lx - size / 2, ly - size / 2 + dy, size, size)
+                g.drawLine(penshadow, x, y + dy, lx, ly+dy)
+                
+                
+                g.fillEllipse(bru, lx - size / 2, ly - size / 2, size, size)
+                g.drawLine(pen, x, y, lx, ly)
+            })
+            lx, ly = x, y
+        }
+        case 2{ /* 悬空绘画 */
+
+	        var x, y = win.toClient(winform.hwnd, mouse.getPos())
+	        if lbtn == 0{
+	            lx, ly = x, y
+	        }
+            
+            size = pkt.pkZ * 2 * szErase / 1024
+            size = (600 - pkt.pkZ) * 60 / 600
+            //if size>30 size = 30
+            
+
+            t := 0
+            t+=0.1;
+            if t >= 360
+            	t = 0;
+
+            bru.color = hsb2rgb(t, 1, 1) | 0xFF000000
+            pen.color = bru.color
+            pen.width = size
+            
+            brushadow.color = hsb2rgb(t, 1, .2) | 0x21000000
+            penshadow.color = brushadow.color
+            penshadow.width = size
+            gw.drawUpdate(function(g){
+                
+                var dy = size
+                g.fillEllipse(brushadow, lx - size / 2, ly - size / 2 + dy, size, size)
+                g.drawLine(penshadow, x, y + dy, lx, ly+dy)
+                
+                
+                g.fillEllipse(bru, lx - size / 2, ly - size / 2, size, size)
+                g.drawLine(pen, x, y, lx, ly)
+            })
+            lx, ly = x, y
+        }
+        case 3{ /*橡皮擦*/
+
+	        var x, y = win.toClient(winform.hwnd, mouse.getPos())
+	        if lbtn == 0{
+	            lx, ly = x, y
+	        }
+            size = prs * szErase / 1024
+            pen.width = size
+            bru.color = 0x00000000
+            pen.color = bru.color
+            gw.drawUpdate(function(g){
+                g.fillEllipse(bru, lx - size / 2, ly - size / 2, size, size)
+                g.drawLine(pen, x, y, lx, ly)
+            })
+
+	        lx, ly = x, y
+        }
+    }
+	lbtn = btn
+	
+    if gw.needUpdate
+    	gw.update()
+})
+
+
+import key.hotkey
+hotkey = key.hotkey(winform)
+hotkey.regStr("``", function(){
+	actived = !actived
+	gw.setTransparent(!actived)
+	if(actived){
+		win.setForeground(winform.hwnd)
+		gw.update()
+	}else{
+		gw.update(64)
+	}
+})
+
+
+hsb2rgb = function(h, s, v) {  
+    assert( h>=0 && h<=360 )
+    assert( s>=0 && s<=1   )
+    assert( v>=0 && v<=1   )
+  
+    var r = 0, g = 0, b = 0;  
+    var i = (math.floor((h / 60)) % 6);  
+    var f = (h / 60) - i;  
+    var p = v * (1 - s);  
+    var q = v * (1 - f * s);  
+    var t = v * (1 - (1 - f) * s);
+    select(i){
+        case 0{ r, g, b = v, t, p }
+        case 1{ r, g, b = q, v, p }
+        case 2{ r, g, b = p, v, t }
+        case 3{ r, g, b = p, q, v }
+        case 4{ r, g, b = t, p, v }
+        case 5{ r, g, b = v, p, q }
+    }
+
+    return r * 255 << 16 | g * 255 << 8 | b * 255
+}  
+
+
+winform.wndproc = function(hwnd,message,vkcode,lParam){ 
+	select(message) {
+		case 0x100/*_WM_KEYDOWN*/{
+			select vkcode{
+				case 0x73/*_VK_F4*/{
+					doClear()
+				}
+				else{
+					//console.log(vkcode)
+				}
+			}
+		}
+	}
+}
+
+winform.show()
+win.loopMessage()
